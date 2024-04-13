@@ -1,7 +1,6 @@
 import pypsa
 import numpy as np
 import pandas as pd
-import os
 import matplotlib.pyplot as plt
 
 
@@ -44,7 +43,7 @@ def initialize_network():
 
     network.snapshots = index
 
-    (diesel_p_set, diesel_q_set) = calculate_diesel_setpoints(load_p_data, load_q_data)
+    (p_set_diesel, q_set_diesel) = calculate_diesel_setpoints(load_p_data, load_q_data)
 
     # AC bus
     # 400V
@@ -54,7 +53,7 @@ def initialize_network():
     # Rated capacity 750kVA
     # Minimum load 250kVA
     # Takes over from
-    network.add("Generator", "Diesel generator", bus="AC bus", p_set=50, q_set=50, control="PQ")
+    network.add("Generator", "Diesel generator", bus="AC bus", control="PQ", p_set=p_set_diesel, q_set=q_set_diesel)
 
     # Plant load
     # Modelled as a time varying load
@@ -62,10 +61,9 @@ def initialize_network():
 
     # Grid connection
     # Modelled as a slack generator, since feeding back into the grid is not allowed.
-    network.add("Generator", "Grid", bus="AC bus", control="Slack", p_set=0)
+    network.add("Generator", "Grid", bus="AC bus", control="Slack")
 
     return network
-
 
 
 # Calculate the diesel p and q setpoints based on the load shedding scheme. In the times where there is no grid, the diesel generator supplies the load power demand
@@ -75,23 +73,58 @@ def calculate_diesel_setpoints(load_p_data, load_q_data):
 
 
 if __name__ == "__main__":
-    plot_load_data()
-    # network = initialize_network()
-    #
-    # network.determine_network_topology()
-    # subnetworks = network.sub_networks
-    #
-    # network.pf()
-    #
-    # gen_p = network.generators_t.p
-    # gen_q = network.generators_t.q
-    #
-    # load_p = network.loads_t.p
-    # load_q = network.loads_t.q
-    #
-    # links_p = network.links_t.p0
-    #
-    # bus_vmag = network.buses_t.v_mag_pu
-    # bus_vang = network.buses_t.v_ang * 180 / np.pi
+    network = initialize_network()
 
-    pass
+    network.determine_network_topology()
+    subnetworks = network.sub_networks
+
+    network.pf()
+
+    gen_p = network.generators_t.p
+    gen_q = network.generators_t.q
+
+    load_p = network.loads_t.p
+    load_q = network.loads_t.q
+
+    links_p = network.links_t.p0
+
+    bus_vmag = network.buses_t.v_mag_pu
+    bus_vang = network.buses_t.v_ang * 180 / np.pi
+
+    # Plotting
+    t = pd.DataFrame(np.arange(0, 998, 1)*0.5)
+
+    # Plot Active Power
+    plt.figure(0)
+    plt.plot(t, gen_p["Diesel generator"], label="Diesel Generator")
+    plt.plot(t, gen_p["Grid"], label="Grid")
+    plt.plot(t, load_p, label="Load")
+    plt.xlabel("Time (hour)")
+    plt.ylabel("P [kW]")
+    plt.grid(True)
+    plt.legend(loc="best")
+    plt.title("Active Power")
+
+    # Plot Reactive Power
+    plt.figure(1)
+    plt.plot(t, gen_q["Diesel generator"], label="Diesel Generator")
+    plt.plot(t, gen_q["Grid"], label="Grid")
+    plt.plot(t, load_q, label="Load")
+    plt.xlabel("Time (hour)")
+    plt.ylabel("Q [kVAr]")
+    plt.grid(True)
+    plt.legend(loc="best")
+    plt.title("Reactive Power")
+
+    # Plot Apparent Power
+    plt.figure(2)
+    plt.plot(t, gen_p["Diesel generator"] + gen_q["Diesel generator"], label="Diesel Generator")
+    plt.plot(t, gen_p["Grid"] + gen_q["Grid"], label="Grid")
+    plt.plot(t, load_p + load_q, label="Load")
+    plt.xlabel("Time (hour)")
+    plt.ylabel("S [kVA]")
+    plt.grid(True)
+    plt.legend(loc="best")
+    plt.title("Apparent Power")
+
+    plt.show()
