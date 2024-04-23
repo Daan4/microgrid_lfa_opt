@@ -3,6 +3,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# Parameters
+PV_INSTALLED_CAPACITY = 100  # [kiloWatt-peak] ; this value can be varied to optimise the system
+PV_INVERTER_EFFICIENCY = 0.95 # source: https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
+PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
+
 
 def get_load_data():
     """
@@ -18,6 +23,21 @@ def get_load_data():
     load_q_data = pd.Series(data.kVAr.values, index).resample("1h").mean()
 
     return load_p_data, load_q_data
+
+
+def get_pv_data():
+    """
+    Get the hourly pv production data based on the installed kW-peak capacity of solar panels & irradiation data
+    The pv production is formed by scaling the irradiance profile to match this value
+
+    :return: Returns a series with power production per hour
+    """
+    index = pd.date_range("2021-01-01 00:00", "2021-12-31 23:30", freq="1H")
+    data = pd.read_csv("data/irradiance.csv")
+    # Scale to match expected yearly production
+    data["ALLSKY_SFC_SW_DWN"] = data["ALLSKY_SFC_SW_DWN"] * PV_INSTALLED_CAPACITY * PV_PRODUCTION_PER_KWP / data["ALLSKY_SFC_SW_DWN"].sum()
+    data = pd.Series(data["ALLSKY_SFC_SW_DWN"].values, index)
+    return data
 
 
 def plot_load_data():
@@ -39,6 +59,7 @@ def initialize_network():
     network = pypsa.Network()
 
     (load_p_data, load_q_data) = get_load_data()
+    pv_data = get_pv_data()
 
     network.snapshots = load_p_data.index
 
