@@ -5,8 +5,10 @@ import matplotlib.pyplot as plt
 
 # Parameters
 PV_INSTALLED_CAPACITY = 100  # [kiloWatt-peak] ; this value can be varied to optimise the system
-PV_INVERTER_EFFICIENCY = 0.95 # source: https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
+
+# efficiency for power converters
+CONVERTER_EFFICIENCY = 0.95  # https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
 
 
 def get_load_data():
@@ -32,7 +34,7 @@ def get_pv_data():
 
     :return: Returns a series with power production per hour
     """
-    index = pd.date_range("2021-01-01 00:00", "2021-12-31 23:30", freq="1H")
+    index = pd.date_range("2021-01-01 00:00", "2021-12-31 23:30", freq="1h")
     data = pd.read_csv("data/irradiance.csv")
     # Scale to match expected yearly production
     data["ALLSKY_SFC_SW_DWN"] = data["ALLSKY_SFC_SW_DWN"] * PV_INSTALLED_CAPACITY * PV_PRODUCTION_PER_KWP / data["ALLSKY_SFC_SW_DWN"].sum()
@@ -70,7 +72,15 @@ def initialize_network():
     network.add("Bus", "AC bus", v_nom=400)
 
     # DC bus
+    # 48V
     network.add("Bus", "DC bus", v_nom=48, carrier="DC")
+
+    # PV
+    network.add("Generator", "PV", bus="DC bus", p_set=pv_data, control="PQ")
+
+    # Unidirectional PV link
+    network.add("Link", "PV inverter", bus0="DC bus", bus1="AC bus", efficiency=CONVERTER_EFFICIENCY,
+                marginal_cost=0, p_min_pu=0)
 
     # Diesel generator
     # Rated capacity 750kVA
@@ -135,6 +145,7 @@ if __name__ == "__main__":
     load_q = network.loads_t.q
 
     links_p = network.links_t.p0
+    #links_q = network.links_t.q0
 
     bus_vmag = network.buses_t.v_mag_pu
     bus_vang = network.buses_t.v_ang * 180 / np.pi
@@ -144,6 +155,7 @@ if __name__ == "__main__":
     plt.figure(0)
     plt.plot(gen_p["Diesel generator"], label="Diesel Generator")
     plt.plot(gen_p["Grid"], label="Grid")
+    plt.plot(gen_p["PV"], label="PV")
     plt.plot(load_p, label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("P [kW]")
@@ -155,6 +167,7 @@ if __name__ == "__main__":
     plt.figure(1)
     plt.plot(gen_q["Diesel generator"], label="Diesel Generator")
     plt.plot(gen_q["Grid"], label="Grid")
+    plt.plot(gen_q["PV"], label="PV")
     plt.plot(load_q, label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("Q [kVAr]")
@@ -166,6 +179,7 @@ if __name__ == "__main__":
     plt.figure(2)
     plt.plot(gen_p["Diesel generator"] + gen_q["Diesel generator"], label="Diesel Generator")
     plt.plot(gen_p["Grid"] + gen_q["Grid"], label="Grid")
+    plt.plot(gen_p["PV"] + gen_q["PV"], label="PV")
     plt.plot(load_p + load_q, label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("S [kVA]")
@@ -176,33 +190,21 @@ if __name__ == "__main__":
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Grid'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Grid'].sum() / 1000 + gen_q['Grid'].sum() / 1000:.0f} MVAh")
+    print(f"Apparent Energy: {gen_p['Grid'].sum() / 1000 + gen_q['Grid'].sum() / 1000:.0f} MVAh\n")
+
     print("Energy Consumed from Diesel Generator: ")
     print(f"Active Energy: {gen_p['Diesel generator'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum() / 1000:.0f} MVArh")
-    print(
-        f"Apparent Energy: {gen_p['Diesel generator'].sum() / 1000 + gen_q['Diesel generator'].sum() / 1000:.0f} MVAh")
+    print(f"Apparent Energy: {gen_p['Diesel generator'].sum() / 1000 + gen_q['Diesel generator'].sum() / 1000:.0f} MVAh\n")
+
+    print("Energy Consumed from PV: ")
+    print(f"Active Energy: {gen_p['PV'].sum() / 1000:.0f} MWh")
+    print(f"Reactive Energy: {gen_q['PV'].sum() / 1000:.0f} MVArh")
+    print(f"Apparent Energy: {gen_p['PV'].sum() / 1000 + gen_q['PV'].sum() / 1000:.0f} MVAh\n")
+
     print("Energy Consumed by Load: ")
     print(f"Active Energy: {load_p['Plant load'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {load_q['Plant load'].sum() / 1000:.0f} MVArh")
     print(f"Apparent Energy: {load_p['Plant load'].sum() / 1000 + load_q['Plant load'].sum() / 1000:.0f} MVAh")
-
-    """
-Note: Power factor correction could be nice?
-Todo: Calculate diesel usage with efficiency curve
-
-Energy Consumed from Grid
-Active Energy: 811 MWh
-Reactive Energy: 343 MVArh
-Apparent Energy: 1154 MVAh
-Energy Consumed from Diesel Generator: 
-Active Energy: 942 MWh
-Reactive Energy: 373 MVArh
-Apparent Energy: 1315 MVAh
-Energy Consumed by Load: 
-Active Energy: 1753 MWh
-Reactive Energy: 716 MVArh
-Apparent Energy: 2469 MVAh
-    """
 
     plt.show()
