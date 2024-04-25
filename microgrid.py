@@ -6,9 +6,19 @@ import matplotlib.pyplot as plt
 # Parameters
 PV_INSTALLED_CAPACITY = 100  # [kiloWatt-peak] ; this value can be varied to optimise the system
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
+CONVERTER_EFFICIENCY = 0.95  # efficiency for power converters https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
+BATT_EFFICIENCY = 0.9  # 10% lost on charging, 10% on discharging... to find source...
+BATT_NOM_POWER = 100  # [kW] power limit
+BATT_NOM_ENERGY = 1000  # [kWh] energy capacity
 
-# efficiency for power converters
-CONVERTER_EFFICIENCY = 0.95  # https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
+
+# TODO: how to model control, discuss modelling approach with Hatim,
+# Figure out how state of charge works for the battery
+# How to do validation? SHould i try to find some yearly output for actual solar panel installation in johannesburg
+# and see if its similar?
+# Example control function
+# Question, i decided to use 1 single AC bus for now, with converter efficiencies worked into the pv output and batt
+# efficiencies, because they only transmit active power not reactive power. Is there a trick to this or is this fine?
 
 
 def get_load_data():
@@ -39,6 +49,8 @@ def get_pv_data():
     # Scale to match expected yearly production
     data["ALLSKY_SFC_SW_DWN"] = data["ALLSKY_SFC_SW_DWN"] * PV_INSTALLED_CAPACITY * PV_PRODUCTION_PER_KWP / data["ALLSKY_SFC_SW_DWN"].sum()
     data = pd.Series(data["ALLSKY_SFC_SW_DWN"].values, index)
+    # Apply inverter efficiency
+    data = data * CONVERTER_EFFICIENCY
     return data
 
 
@@ -65,27 +77,25 @@ def initialize_network():
 
     network.snapshots = load_p_data.index
 
-    (p_set_diesel, q_set_diesel) = calculate_diesel_setpoints(load_p_data, load_q_data)
+    (p_set_diesel, q_set_diesel, p_set_battery, q_set_battery) = calculate_setpoints(load_p_data, load_q_data, pv_data)
 
     # AC bus
     # 400V
     network.add("Bus", "AC bus", v_nom=400)
 
-    # DC bus
-    # 48V
-    network.add("Bus", "DC bus", v_nom=48, carrier="DC")
-
     # PV
-    network.add("Generator", "PV", bus="DC bus", p_set=pv_data, control="PQ")
+    network.add("Generator", "PV", bus="AC bus", p_set=pv_data, control="PQ")
 
-    # Unidirectional PV link
-    network.add("Link", "PV inverter", bus0="DC bus", bus1="AC bus", efficiency=CONVERTER_EFFICIENCY,
-                marginal_cost=0, p_min_pu=0)
+    # Battery
+    network.add("StorageUnit", "BESS", bus="AC bus", control="PQ", p_set=1,
+                q_set=q_set_battery, p_nom=BATT_NOM_POWER, max_hppours=BATT_NOM_ENERGY/BATT_NOM_POWER,
+                efficiency_store=BATT_EFFICIENCY*CONVERTER_EFFICIENCY,
+                efficiency_dispatch=BATT_EFFICIENCY*CONVERTER_EFFICIENCY,
+                state_of_charge_initial=500)
 
     # Diesel generator
     # Rated capacity 750kVA
     # Minimum load 250kVA
-    # Takes over from
     network.add("Generator", "Diesel generator", bus="AC bus", control="PQ", p_set=p_set_diesel, q_set=q_set_diesel)
 
     # Plant load
@@ -93,13 +103,13 @@ def initialize_network():
     network.add("Load", "Plant load", bus="AC bus", p_set=load_p_data, q_set=load_q_data)
 
     # Grid connection
-    # Modelled as a slack generator, since feeding back into the grid is not allowed.
+    # Modelled as a slack generator
     network.add("Generator", "Grid", bus="AC bus", control="Slack")
 
     return network
 
 
-def calculate_diesel_setpoints(load_p_data, load_q_data):
+def calculate_setpoints(load_p_data, load_q_data, pv_data):
     """
     Calculate the diesel p and q setpoints based on the load shedding scheme. In the times where there is no grid, the diesel generator supplies the load power demand
     Diesel generator is on between 0600-1030, 1400-1630, 2200-0030
@@ -127,7 +137,10 @@ def calculate_diesel_setpoints(load_p_data, load_q_data):
     p_set_diesel = pd.Series(p_set_diesel, index)
     q_set_diesel = pd.Series(q_set_diesel, index)
 
-    return p_set_diesel, q_set_diesel
+    p_set_battery = pd.Series(0, index)
+    q_set_battery = pd.Series(0, index)
+
+    return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery
 
 
 if __name__ == "__main__":
@@ -144,8 +157,9 @@ if __name__ == "__main__":
     load_p = network.loads_t.p
     load_q = network.loads_t.q
 
-    links_p = network.links_t.p0
-    #links_q = network.links_t.q0
+    store_p = network.storage_units_t.p
+    store_q = network.storage_units_t.q
+    store_soc = network.storage_units_t.state_of_charge
 
     bus_vmag = network.buses_t.v_mag_pu
     bus_vang = network.buses_t.v_ang * 180 / np.pi
@@ -156,6 +170,7 @@ if __name__ == "__main__":
     plt.plot(gen_p["Diesel generator"], label="Diesel Generator")
     plt.plot(gen_p["Grid"], label="Grid")
     plt.plot(gen_p["PV"], label="PV")
+    plt.plot(store_p["BESS"], label="BESS")
     plt.plot(load_p, label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("P [kW]")
@@ -168,6 +183,7 @@ if __name__ == "__main__":
     plt.plot(gen_q["Diesel generator"], label="Diesel Generator")
     plt.plot(gen_q["Grid"], label="Grid")
     plt.plot(gen_q["PV"], label="PV")
+    plt.plot(store_q["BESS"], label="BESS")
     plt.plot(load_q, label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("Q [kVAr]")
@@ -180,12 +196,22 @@ if __name__ == "__main__":
     plt.plot(gen_p["Diesel generator"] + gen_q["Diesel generator"], label="Diesel Generator")
     plt.plot(gen_p["Grid"] + gen_q["Grid"], label="Grid")
     plt.plot(gen_p["PV"] + gen_q["PV"], label="PV")
+    plt.plot(store_p["BESS"] + store_q["BESS"], label="BESS")
     plt.plot(load_p + load_q, label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("S [kVA]")
     plt.grid(True)
     plt.legend(loc="best")
     plt.title("Apparent Power")
+
+    # Plot State of Charge
+    plt.figure(3)
+    plt.plot(store_soc, label="BESS")
+    plt.xlabel("Time (hour")
+    plt.ylabel("State of Charge [%]")
+    plt.grid(True)
+    plt.legend(loc="best")
+    plt.title("State of Charge")
 
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum() / 1000:.0f} MWh")
