@@ -2,6 +2,7 @@ import pypsa
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from lib import *
 
 # Parameters
 PV_INSTALLED_CAPACITY = 100  # [kiloWatt-peak] ; this value can be varied to optimise the system
@@ -13,6 +14,8 @@ BATT_NOM_ENERGY = 1000  # [kWh] energy capacity
 
 
 # TODO: how to model control, discuss modelling approach with Hatim,
+# State of charge not working
+
 # Figure out how state of charge works for the battery
 # How to do validation? SHould i try to find some yearly output for actual solar panel installation in johannesburg
 # and see if its similar?
@@ -77,18 +80,18 @@ def initialize_network():
 
     network.snapshots = load_p_data.index
 
-    (p_set_diesel, q_set_diesel, p_set_battery, q_set_battery) = calculate_setpoints(load_p_data, load_q_data, pv_data)
+    (p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv) = calculate_setpoints(load_p_data, load_q_data, pv_data)
 
     # AC bus
     # 400V
     network.add("Bus", "AC bus", v_nom=400)
 
     # PV
-    network.add("Generator", "PV", bus="AC bus", p_set=pv_data, control="PQ")
+    network.add("Generator", "PV", bus="AC bus", p_set=p_set_pv, q_set=q_set_pv, control="PQ")
 
     # Battery
-    network.add("StorageUnit", "BESS", bus="AC bus", control="PQ", p_set=1,
-                q_set=q_set_battery, p_nom=BATT_NOM_POWER, max_hppours=BATT_NOM_ENERGY/BATT_NOM_POWER,
+    network.add("StorageUnit", "BESS", bus="AC bus", control="PQ", p_set=p_set_battery,
+                q_set=q_set_battery, p_nom=BATT_NOM_POWER, max_hours=BATT_NOM_ENERGY/BATT_NOM_POWER,
                 efficiency_store=BATT_EFFICIENCY*CONVERTER_EFFICIENCY,
                 efficiency_dispatch=BATT_EFFICIENCY*CONVERTER_EFFICIENCY,
                 state_of_charge_initial=500)
@@ -121,33 +124,30 @@ def calculate_setpoints(load_p_data, load_q_data, pv_data):
 
     index = load_p_data.index
 
-    p_set_diesel = []
-    q_set_diesel = []
-
     for dt in index:
         mins = dt.hour * 60 + dt.minute
         if mins >= 6 * 60 and mins <= 10 * 60 + 30 or mins >= 14 * 60 and mins <= 16 * 60 + 30 or (
                 mins >= 22 * 60 or mins <= 30):
-            p_set_diesel.append(0)
-            q_set_diesel.append(0)
+            # Grid available
+            pass
         else:
-            p_set_diesel.append(load_p_data.get(dt))
-            q_set_diesel.append(load_q_data.get(dt))
+            # Grid not available
+            pass
 
-    p_set_diesel = pd.Series(p_set_diesel, index)
-    q_set_diesel = pd.Series(q_set_diesel, index)
+    p_set_diesel = pd.Series(0, index)
+    q_set_diesel = pd.Series(0, index)
 
-    p_set_battery = pd.Series(0, index)
+    p_set_battery = pd.Series(-100, index)
     q_set_battery = pd.Series(0, index)
 
-    return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery
+    p_set_pv = pv_data
+    q_set_pv = pd.Series(0, index)
+
+    return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv
 
 
 if __name__ == "__main__":
     network = initialize_network()
-
-    network.determine_network_topology()
-    subnetworks = network.sub_networks
 
     network.pf()
 
@@ -216,12 +216,15 @@ if __name__ == "__main__":
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Grid'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Grid'].sum() / 1000 + gen_q['Grid'].sum() / 1000:.0f} MVAh\n")
+    print(f"Apparent Energy: {gen_p['Grid'].sum() / 1000 + gen_q['Grid'].sum() / 1000:.0f} MVAh")
+    print(f"Electricity Bill: €{calculate_electricity_costs(gen_p['Grid'], gen_q['Grid']):.0f}\n")
 
     print("Energy Consumed from Diesel Generator: ")
     print(f"Active Energy: {gen_p['Diesel generator'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Diesel generator'].sum() / 1000 + gen_q['Diesel generator'].sum() / 1000:.0f} MVAh\n")
+    print(f"Apparent Energy: {gen_p['Diesel generator'].sum() / 1000 + gen_q['Diesel generator'].sum() / 1000:.0f} MVAh")
+    print(f"Fuel Usage: {calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator']):.0f} l")
+    print(f"Fuel Cost: €{calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])*0.81:.0f}\n")
 
     print("Energy Consumed from PV: ")
     print(f"Active Energy: {gen_p['PV'].sum() / 1000:.0f} MWh")
