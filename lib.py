@@ -114,3 +114,5 @@ def calculate_diesel_fuel_usage(p, q):
         else:
             fuel += (v - 0.75 * 750) / (0.25 * 750) * (202 - 149) + 149
     return fuel
+
+def calculate_soc(p, q,
