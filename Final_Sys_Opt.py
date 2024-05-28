@@ -10,7 +10,6 @@ grid_schedule = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                           0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
 battery_efficiency = 0.95
 
-
 # Function to calculate the Loss of Load Probability and diesel generator hours needed
 def objective(x):
     pv_size = x[0]
@@ -49,7 +48,7 @@ bounds = [(0, None), (0, None)]  # PV size and Battery size must be non-negative
 initial_guess = [200, 50]  # Example values
 
 # Detailed debugging to check if optimizer changes the values
-def debug_optimizer(result):
+def debug_optimizer(result, initial_guess):
     print("Optimization Result:")
     print(f"Success: {result.success}")
     print(f"Status: {result.status}")
@@ -71,7 +70,7 @@ optimized_LOLP = result.fun
 _, diesel_needed_hours = objective(result.x)
 
 # Debug output to ensure optimizer worked correctly
-debug_optimizer(result)
+debug_optimizer(result, initial_guess)
 
 print('Hours Diesel Generator Needed:', diesel_needed_hours)
 
@@ -80,7 +79,7 @@ def test_with_different_initial_guess(initial_guess):
     result = minimize(optimization_function, initial_guess, bounds=bounds, method='SLSQP')
     _, diesel_needed_hours = objective(result.x)
     
-    debug_optimizer(result)
+    debug_optimizer(result, initial_guess)
     print('Hours Diesel Generator Needed:', diesel_needed_hours)
 
 # Test with different initial guesses
