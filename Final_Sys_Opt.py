@@ -1,15 +1,15 @@
 import numpy as np
-from scipy.optimize import minimize, least_squares, Bounds
+from scipy.optimize import least_squares
 import math
+import pandas as pd
 
 # Example load and solar profiles to ensure some usage of the diesel generator
-load_profile = np.array([30, 28, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100,
-                           110, 120, 130, 140, 150, 160, 170, 180, 50, 45, 40, 35, 30, 28, 25, 20])
+load_profile = np.array([])
 # Solar profile for 1 kWp installed
-solar_profile = np.array([0, 0, 0, 0, 0, 0, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-                          0.5, 0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-grid_schedule = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                          0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
+solar_profile = np.array([])
+# Zeroes indicating grid unavailability
+grid_schedule = np.array([])
+
 converter_efficiency = 0.95
 battery_efficiency = 0.9  # 90% for charging and discharging
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
@@ -25,7 +25,7 @@ def objective(x):
 
     for t in range(len(load_profile)):
         # Calculate PV output based on normalised solar profile, pv_size.
-        # Capped to load demand (no feed-in)
+        # Capped to load demand (no feed-in allowed)
         energy_pv = min(pv_size * solar_profile[t], load_profile[t])
 
         if grid_schedule[t] == 0:  # Grid disconnected
@@ -53,21 +53,21 @@ def objective(x):
 
         soc = max(soc, 0)
 
+    # output function chosen such that it minimizes diesel needed, pv curtailment, and battery sizing
     output = math.sqrt(diesel_needed_hours**2 + pv_curtail_hours**2)
 
-    return output
+    return float(diesel_needed_hours), float(pv_curtail_hours)
 
 
 # Detailed debugging to check if optimizer changes the values
 def debug_optimizer(result, initial_guess):
     print("Optimization Result:")
-    print(f"Success: {result.success}")
-    print(f"Status: {result.status}")
-    print(f"Message: {result.message}")
     print(f"Initial Guess: {initial_guess}")
     print(f"Optimal PV size: {result.x[0]}")
     print(f"Optimal Battery size: {result.x[1]}")
     print(f"Objective value: {result.fun}")
+    print(f"Diesel needed hours: {result.fun[0]}")
+    print(f"PV curtail hours: {result.fun[1]}\n")
 
 
 def optimize(initial_guess):
@@ -75,14 +75,41 @@ def optimize(initial_guess):
     bounds = [[0, 0], [np.inf, np.inf]]  # PV size and Battery size must be non-negative
 
     # Use the minimize function to find the optimal sizes
-    result = least_squares(objective, initial_guess, bounds=bounds, method='trf', diff_step=10)
+    result = least_squares(objective, initial_guess, bounds=bounds, method='trf', diff_step=1, loss='cauchy')
 
     # Debug output to ensure optimizer worked correctly
     debug_optimizer(result, initial_guess)
 
 
 if __name__ == "__main__":
-    optimize([100, 100])
-    optimize([50, 10])
-    optimize([500, 100])
-    optimize([1000, 200])
+    # Get power profile for 1 kWp installed pv
+    data = pd.read_csv("data/irradiance.csv")
+    solar_profile = np.array(data["ALLSKY_SFC_SW_DWN"] * PV_PRODUCTION_PER_KWP / data["ALLSKY_SFC_SW_DWN"].sum())
+
+    # Get load data, converted to apparent power
+    index = pd.date_range("2021-01-01 00:00", "2021-12-31 23:30", freq="30min")
+    data = pd.read_csv("data/load_half_hourly.csv")
+    load_p_data = pd.Series(data.kW.values, index).resample("1h").mean()
+    load_q_data = pd.Series(data.kVAr.values, index).resample("1h").mean()
+    load_p_data = load_p_data.apply(lambda x: x**2)
+    load_q_data = load_q_data.apply(lambda x: x**2)
+    load_s_data = load_p_data.add(load_q_data)
+    load_s_data = load_s_data.apply(lambda x: math.sqrt(x))
+    load_profile = np.array(load_s_data.array)
+
+    # Set grid schedule
+    #  Diesel generator is on between 0600-1030, 1400-1630, 2200-0030
+    # hours shifted a bit due to using hourly pattern, but still 10 hours a day
+    daily_pattern = [0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0]
+    grid_schedule = np.array(daily_pattern * 365)
+
+    # compare different starting guesses
+    # optimize([100, 100])
+    # optimize([10000, 10000])
+    optimize([30000, 30000])
+    # optimize([100000, 100000])
+
+    # Initial result to try model with:
+    # PV size 34.1 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
+    # battery size 666MWh ~$92.5 million cost assuming $139/kWh
+    # seems reasonable? Let's try it out!
