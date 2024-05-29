@@ -19,7 +19,10 @@ def calculate_electricity_costs(p, q):
         cost += value * price
 
     # Calculate monthly variable capacity costs based on peak kVA and kVAr in each month
-    s = p + q
+    p = p.apply(lambda x: x ** 2)
+    q = q.apply(lambda x: x ** 2)
+    s = p.add(q)
+    s = s.apply(lambda x: math.sqrt(x))
     max_s = s.groupby(s.index.month).max()
     max_q = q.groupby(q.index.month).max()
 
@@ -103,7 +106,10 @@ def calculate_diesel_fuel_usage(p, q):
     :param q: reactive power usage
     :return: diesel usage in liters
     """
-    s = p + q
+    p = p.apply(lambda x: x ** 2)
+    q = q.apply(lambda x: x ** 2)
+    s = p.add(q)
+    s = s.apply(lambda x: math.sqrt(x))
     fuel = 0
     for v in s.values:
         if 0 <= v < 0.25*750:

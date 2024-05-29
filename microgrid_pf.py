@@ -217,12 +217,39 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
     return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv
 
 
-def validate_results():
+def validate_results(gen_p, gen_q, load_p, load_q, store_p, store_q, soc, diesel_usage):
     """
-    Check if the project goals are met
+    Check if the project goals are met:
+
+    90% diesel usage reduction
+    100% load met at all times (theres should
+    soc staying between 0 and 100%
+    no feed in to grid
 
     :return:
     """
+
+    # check soc
+    if soc.min() < 0:
+        print("SOC goes below 0%!")
+    elif soc.max() > 100:
+        print("SOC goes above 100%!")
+    else:
+        print("SOC OK")
+
+    # check diesel usage
+    # 318242 l in basecase
+    if diesel_usage > 318242*0.1:
+        print(f"Diesel usage is HIGHER than target of {318242*0.1} l")
+    else:
+        print(f"Diesel usage is LOWER than target of {318242 * 0.1} l")
+
+    # check grid feed in
+    if gen_p["Grid"].max() > 0 or gen_q["Grid"].max() > 0:
+        print(f"Feed-in to grid detected TODO calculate amount peak & total")
+
+    # check load met, ie there should be no supply from grid when grid is unavailable
+    # TODO! detect peak and total. To get rid of this and feedin we will need to have some margin in control logic
 
 
 if __name__ == "__main__":
@@ -238,6 +265,8 @@ if __name__ == "__main__":
 
     store_p = network.storage_units_t.p
     store_q = network.storage_units_t.q
+
+    soc = calculate_soc(store_p, store_q, BATT_NOM_ENERGY, BATT_SOC_INITIAL, BATT_EFFICIENCY*CONVERTER_EFFICIENCY)
 
     # Plotting
     # Plot Active Power
@@ -281,14 +310,12 @@ if __name__ == "__main__":
 
     # Plot State of Charge
     plt.figure(3)
-    plt.plot(calculate_soc(store_p, store_q, BATT_NOM_ENERGY, BATT_SOC_INITIAL, BATT_EFFICIENCY*CONVERTER_EFFICIENCY), label="BESS")
+    plt.plot(soc, label="BESS")
     plt.xlabel("Time (hour")
     plt.ylabel("State of Charge [%]")
     plt.grid(True)
     plt.legend(loc="best")
     plt.title("State of Charge")
-
-    validate_results()
 
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum() / 1000:.0f} MWh")
@@ -296,12 +323,13 @@ if __name__ == "__main__":
     print(f"Apparent Energy: {gen_p['Grid'].sum() / 1000 + gen_q['Grid'].sum() / 1000:.0f} MVAh")
     print(f"Electricity Bill: €{calculate_electricity_costs(gen_p['Grid'], gen_q['Grid']):.0f}\n")
 
+    diesel_usage = calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])
     print("Energy Consumed from Diesel Generator: ")
     print(f"Active Energy: {gen_p['Diesel generator'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum() / 1000:.0f} MVArh")
     print(f"Apparent Energy: {gen_p['Diesel generator'].sum() / 1000 + gen_q['Diesel generator'].sum() / 1000:.0f} MVAh")
-    print(f"Fuel Usage: {calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator']):.0f} l")
-    print(f"Fuel Cost: €{calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])*0.81:.0f}\n")
+    print(f"Fuel Usage: {diesel_usage:.0f} l")
+    print(f"Fuel Cost: €{diesel_usage*0.81:.0f}\n")
 
     print("Energy Consumed from PV: ")
     print(f"Active Energy: {gen_p['PV'].sum() / 1000:.0f} MWh")
@@ -311,6 +339,10 @@ if __name__ == "__main__":
     print("Energy Consumed by Load: ")
     print(f"Active Energy: {load_p['Plant load'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {load_q['Plant load'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {load_p['Plant load'].sum() / 1000 + load_q['Plant load'].sum() / 1000:.0f} MVAh")
+    print(f"Apparent Energy: {load_p['Plant load'].sum() / 1000 + load_q['Plant load'].sum() / 1000:.0f} MVAh\n")
+
+    print(f"Average SOC: {soc.mean():.1f}%\n")
+
+    validate_results(gen_p, gen_q, load_p, load_q, store_p, store_q, soc, diesel_usage)
 
     plt.show()
