@@ -37,7 +37,10 @@ def objective(x):
         energy_battery = load_profile[t] - energy_pv - energy_grid
 
         # update soc based on energy supplied
-        soc -= energy_battery * battery_efficiency
+        if energy_battery >= 0:
+            soc -= energy_battery / battery_efficiency
+        else:
+            soc -= energy_battery * battery_efficiency
 
         # cap soc, if soc is higher than pv should be curtailed
         if soc > battery_size:
