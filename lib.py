@@ -1,4 +1,5 @@
 import pandas as pd
+import math
 
 
 def calculate_electricity_costs(p, q):
@@ -114,3 +115,25 @@ def calculate_diesel_fuel_usage(p, q):
         else:
             fuel += (v - 0.75 * 750) / (0.25 * 750) * (202 - 149) + 149
     return fuel
+
+
+def calculate_soc(p, q, nom_energy, soc_init, eff):
+    soc = soc_init
+    output = []
+    for i in range(len(p)):
+        s = math.sqrt(p["BESS"][i]**2 + q["BESS"][i]**2)
+        if p["BESS"][i] < 0:
+            s *= -1
+        if s >= 0:
+            soc -= s / eff
+        else:
+            soc -= s * eff
+        soc = min(soc, nom_energy)
+        soc = max(0, soc)
+
+        output.append(soc)
+
+    output = pd.Series(output, p.index)
+    output = output.apply(lambda x: x / nom_energy * 100)
+
+    return pd.Series(output, p.index)

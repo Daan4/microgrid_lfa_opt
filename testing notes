@@ -1,0 +1,19 @@
+after fiddling with optimize functions
+
+least squares was selected, with cauchy loss (because we are non linear)
+tweaked diff_step by hand until we got reasonable looking results for various initial guesses
+put initial guess near what we thought to obtain first optimization results:
+
+    # Initial result to try model with:
+    # PV size 34.355 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
+    # battery size 666.322 MWh ~$92.5 million cost assuming $139/kWh
+    # seems reasonable? Let's try it out!
+    # https://atb.nrel.gov/electricity/2023/utility-scale_battery_storage stating $338 dollar per kwh in 21 for 60MW 600MWh battery which is similar to hours
+
+minimized pv curtailment & diesel hours in initial try
+if only diesel hours, system can become super large
+I think it can be optimized further somehow by trying to minimize pv+battery while minimizing diesel hours
+
+Then priority based control rules implemented, and tested with above optimization
+
+From initial results this sizing seems way too big to be optimal

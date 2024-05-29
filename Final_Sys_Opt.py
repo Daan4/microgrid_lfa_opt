@@ -113,3 +113,4 @@ if __name__ == "__main__":
     # PV size 34.355 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
     # battery size 666.322 MWh ~$92.5 million cost assuming $139/kWh
     # seems reasonable? Let's try it out!
+    # https://atb.nrel.gov/electricity/2023/utility-scale_battery_storage stating $338 dollar per kwh in 21 for 60MW 600MWh battery which is similar to hours

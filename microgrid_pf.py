@@ -1,22 +1,25 @@
 import pypsa
-import numpy as np
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
 from lib import calculate_electricity_costs, calculate_diesel_fuel_usage, calculate_soc
 
 # Parameters
-PV_INSTALLED_CAPACITY = 100  # [kiloWatt-peak] ; this value can be varied to optimise the system
+PV_INSTALLED_CAPACITY = 34355  # [kiloWatt-peak] ; this value can be varied to optimise the system
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
 CONVERTER_EFFICIENCY = 0.95  # efficiency for power converters https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
-BATT_EFFICIENCY = 0.9  # 10% lost on charging, 10% on discharging... seems reasonable but need source
-BATT_NOM_POWER = 100  # [kW] power limit
-BATT_NOM_ENERGY = 1000  # [kWh] energy capacity
-BATT_SOC_INITIAL = 500  # [kWh] initial state of charge
-
+BATT_EFFICIENCY = 0.9  # 10% lost on charging, 10% on discharging... seems reasonable but need source, includes converter losses
+BATT_NOM_ENERGY = 666322  # [kWh] energy capacity
+#BATT_NOM_POWER = BATT_NOM_ENERGY / 10  # [kW] power limit > assume max power stored is 10 hours
+# nominal power is no issue with this large of a battery we can assume it covers any instantaneous power asked by plant
+BATT_SOC_INITIAL = BATT_NOM_ENERGY/2  # [kWh] initial state of charge
+GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # List of hours in which grid is available, example 0 means from 00:00 through 01:00
 
 # Model Validation
 # Example control function
 # pyPSA optimisation
+# optimisation by using pf output as the objective function!!!
+# add in option to have random chance of grid failure based on real numbers
 
 
 def get_load_data():
@@ -67,7 +70,7 @@ def plot_load_data():
     plt.show()
 
 
-def initialize_network():
+def initialize_network(strategy):
     network = pypsa.Network()
 
     (load_p_data, load_q_data) = get_load_data()
@@ -75,7 +78,7 @@ def initialize_network():
 
     network.snapshots = load_p_data.index
 
-    (p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv) = calculate_setpoints(load_p_data, load_q_data, pv_data)
+    (p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv) = calculate_setpoints(load_p_data, load_q_data, pv_data, strategy)
 
     # AC bus
     # 400V
@@ -94,8 +97,6 @@ def initialize_network():
                 q_set=q_set_battery)
 
     # Diesel generator
-    # Rated capacity 750kVA
-    # Minimum load 250kVA
     network.add("Generator", "Diesel generator", bus="AC bus",
                 control="PQ",
                 p_set=p_set_diesel,
@@ -114,17 +115,37 @@ def initialize_network():
     return network
 
 
-def calculate_setpoints(load_p_data, load_q_data, pv_data):
+def calculate_setpoints(load_p_data, load_q_data, pv_data, strategy):
     """
-    Calculate the diesel p and q setpoints based on the load shedding scheme. In the times where there is no grid, the diesel generator supplies the load power demand
-    Diesel generator is on between 0600-1030, 1400-1630, 2200-0030
+    Calculate the diesel, pv, and battery setpoints based on the load demand and pv production
+    Setpoints are calculated in apparent power and split to active/reactive power at the end.
+
+    Diesel is rated at max 750kVA and can supply a minimum of 250kVA
+    Grid is only available on this daily schedule
+    daily_pattern = [0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0]
 
     :param load_p_data: load active power
     :param load_q_data: load reactive power
     :param pv_data: pv power production (can be split across active/reactive as needed)
     :return: p and q setpoints for diesel generator, BESS and PV
     """
+    if strategy == 'priority':
+        return calculate_setpoints_priority(load_p_data, load_q_data, pv_data)
+    else:
+        raise NotImplemented(f"Strategy {strategy} is not implemented.")
 
+
+def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
+    """
+    Implement priority-based control strategy
+
+    Priority 1: PV
+    Priority 2: BESS (only if soc > 20%)
+    Priority 3: Grid
+    Priority 4: BESS (soc <= 20%)
+    Priority 5: genset
+
+    """
     # track the battery state of charge in kWh
     soc = BATT_SOC_INITIAL
 
@@ -138,15 +159,53 @@ def calculate_setpoints(load_p_data, load_q_data, pv_data):
     q_set_pv = []
 
     for dt in index:
-        mins = dt.hour * 60 + dt.minute
-        if mins >= 6 * 60 and mins <= 10 * 60 + 30 or mins >= 14 * 60 and mins <= 16 * 60 + 30 or (
-                mins >= 22 * 60 or mins <= 30):
-            # Grid available
-            pass
-        else:
-            # Grid not available
-            pass
+        s_load = math.sqrt(load_p_data[dt]**2 + load_q_data[dt]**2)
+        s_pv = pv_data[dt]
+        s_diesel = 0
+        s_batt = 0
 
+        if s_pv > s_load:
+            # Overproduction of PV
+            if soc <= BATT_NOM_ENERGY - (s_pv - s_load) * (BATT_EFFICIENCY * CONVERTER_EFFICIENCY):
+                # pv overproduction used to charge battery if there is space in the battery
+                s_batt = -(s_pv - s_load)
+            else:
+                # pv overproduction wasted by curtailment
+                s_pv = s_load
+        elif s_pv < s_load:
+            # Gap between pv and load is filled based on priority
+            if soc > 0.2*BATT_NOM_ENERGY + (s_load-s_pv) / (BATT_EFFICIENCY * CONVERTER_EFFICIENCY):
+                # battery can be used while staying above 20% soc
+                s_batt = s_load - s_pv
+            elif dt.hour not in GRID_AVAILABLE_HOURS:
+                # Grid not available, so gap will have to be made up with remaining battery (under 20% soc) + diesel genset
+                if soc >= (s_load-s_pv) / (BATT_EFFICIENCY * CONVERTER_EFFICIENCY):
+                    # Battery can be used while staying above 0 soc
+                    s_batt = s_load - s_pv
+                else:
+                    # Battery cannot be used while staying above 0 soc. diesel generator kicks in and charges battery with remainder
+                    s_diesel = min(250, s_load - s_pv)
+                    s_diesel = max(750, s_diesel)
+                    if s_diesel > s_load - s_pv:
+                        s_batt = s_load - s_pv - s_diesel
+
+        # adjust soc
+        if s_batt >= 0:
+            soc -= s_batt / (BATT_EFFICIENCY * CONVERTER_EFFICIENCY)
+        else:
+            soc -= s_batt * (BATT_EFFICIENCY * CONVERTER_EFFICIENCY)
+        soc = min(soc, BATT_NOM_ENERGY)
+        soc = max(0, soc)
+
+        # calculate p and q setpoints for each component
+        p_set_pv.append(s_pv / s_load * load_p_data[dt])
+        q_set_pv.append(s_pv / s_load * load_q_data[dt])
+        p_set_battery.append(s_batt / s_load * load_p_data[dt])
+
+        q_set_battery.append(s_batt / s_load * load_q_data[dt])
+        p_set_diesel.append(s_diesel / s_load * load_p_data[dt])
+        q_set_diesel.append(s_diesel / s_load * load_q_data[dt])
+        pass
 
     p_set_diesel = pd.Series(p_set_diesel, index)
     q_set_diesel = pd.Series(q_set_diesel, index)
@@ -155,11 +214,19 @@ def calculate_setpoints(load_p_data, load_q_data, pv_data):
     p_set_pv = pd.Series(p_set_pv, index)
     q_set_pv = pd.Series(q_set_pv, index)
 
-    return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv, soc
+    return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv
+
+
+def validate_results():
+    """
+    Check if the project goals are met
+
+    :return:
+    """
 
 
 if __name__ == "__main__":
-    network = initialize_network()
+    network = initialize_network('priority')
 
     network.pf()
 
@@ -171,9 +238,6 @@ if __name__ == "__main__":
 
     store_p = network.storage_units_t.p
     store_q = network.storage_units_t.q
-
-    bus_vmag = network.buses_t.v_mag_pu
-    bus_vang = network.buses_t.v_ang * 180 / np.pi
 
     # Plotting
     # Plot Active Power
@@ -217,12 +281,14 @@ if __name__ == "__main__":
 
     # Plot State of Charge
     plt.figure(3)
-    plt.plot(store_soc, label="BESS")
+    plt.plot(calculate_soc(store_p, store_q, BATT_NOM_ENERGY, BATT_SOC_INITIAL, BATT_EFFICIENCY*CONVERTER_EFFICIENCY), label="BESS")
     plt.xlabel("Time (hour")
     plt.ylabel("State of Charge [%]")
     plt.grid(True)
     plt.legend(loc="best")
     plt.title("State of Charge")
+
+    validate_results()
 
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum() / 1000:.0f} MWh")
