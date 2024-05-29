@@ -38,9 +38,9 @@ def objective(x):
 
         # update soc based on energy supplied
         if energy_battery >= 0:
-            soc -= energy_battery / battery_efficiency
+            soc -= energy_battery / (battery_efficiency * converter_efficiency)
         else:
-            soc -= energy_battery * battery_efficiency
+            soc -= energy_battery * (battery_efficiency * converter_efficiency)
 
         # cap soc, if soc is higher than pv should be curtailed
         if soc > battery_size:
@@ -110,6 +110,6 @@ if __name__ == "__main__":
     # optimize([100000, 100000])
 
     # Initial result to try model with:
-    # PV size 34.1 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
-    # battery size 666MWh ~$92.5 million cost assuming $139/kWh
+    # PV size 34.355 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
+    # battery size 666.322 MWh ~$92.5 million cost assuming $139/kWh
     # seems reasonable? Let's try it out!
