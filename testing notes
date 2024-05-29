@@ -16,4 +16,5 @@ I think it can be optimized further somehow by trying to minimize pv+battery whi
 
 Then priority based control rules implemented, and tested with above optimization
 
-From initial results this sizing seems way too big to be optimal
+From initial results this sizing seems way too big to be optimal, something wrong with objective function to give these results
+I want to really try to use the pf output as an objective function!!!

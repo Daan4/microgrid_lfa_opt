@@ -20,6 +20,7 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 # pyPSA optimisation
 # optimisation by using pf output as the objective function!!!
 # add in option to have random chance of grid failure based on real numbers
+# finish validation
 
 
 def get_load_data():
@@ -217,7 +218,7 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
     return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv
 
 
-def validate_results(gen_p, gen_q, load_p, load_q, store_p, store_q, soc, diesel_usage):
+def validate_results(gen_p, gen_q, soc, diesel_usage):
     """
     Check if the project goals are met:
 
@@ -244,12 +245,15 @@ def validate_results(gen_p, gen_q, load_p, load_q, store_p, store_q, soc, diesel
     else:
         print(f"Diesel usage is LOWER than target of {318242 * 0.1} l")
 
-    # check grid feed in
+    # check grid feed in, ignore floating point errors
     if gen_p["Grid"].max() > 0 or gen_q["Grid"].max() > 0:
-        print(f"Feed-in to grid detected TODO calculate amount peak & total")
+        peak = math.sqrt(gen_p['Grid'].clip(lower=0).max()**2+gen_q['Grid'].clip(lower=0).max()**2)
+        total = math.sqrt(gen_p['Grid'].clip(lower=0).sum()**2+gen_q['Grid'].clip(lower=0).sum()**2)
+        if peak > 1e-5 or total > 1e-5:
+            print(f"Feed-in to grid detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
 
     # check load met, ie there should be no supply from grid when grid is unavailable
-    # TODO! detect peak and total. To get rid of this and feedin we will need to have some margin in control logic
+    print("TODO! detect peak and total. To get rid of this and feedin we will need to have some margin in control logic")
 
 
 if __name__ == "__main__":
@@ -343,6 +347,6 @@ if __name__ == "__main__":
 
     print(f"Average SOC: {soc.mean():.1f}%\n")
 
-    validate_results(gen_p, gen_q, load_p, load_q, store_p, store_q, soc, diesel_usage)
+    validate_results(gen_p, gen_q, soc, diesel_usage)
 
     plt.show()
