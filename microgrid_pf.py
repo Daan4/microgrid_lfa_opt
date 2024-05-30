@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 from lib import calculate_electricity_costs, calculate_diesel_fuel_usage, calculate_soc
 
 # Parameters
-PV_INSTALLED_CAPACITY = 34355  # [kiloWatt-peak] ; this value can be varied to optimise the system
+PV_INSTALLED_CAPACITY = 500  # [kiloWatt-peak] ; this value can be varied to optimise the system
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
 CONVERTER_EFFICIENCY = 0.95  # efficiency for power converters https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
 BATT_EFFICIENCY = 0.9  # 10% lost on charging, 10% on discharging... seems reasonable but need source, includes converter losses
-BATT_NOM_ENERGY = 666322  # [kWh] energy capacity
+BATT_NOM_ENERGY = 1000  # [kWh] energy capacity
 #BATT_NOM_POWER = BATT_NOM_ENERGY / 10  # [kW] power limit > assume max power stored is 10 hours
 # nominal power is no issue with this large of a battery we can assume it covers any instantaneous power asked by plant
 BATT_SOC_INITIAL = BATT_NOM_ENERGY/2  # [kWh] initial state of charge
@@ -21,6 +21,8 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 # optimisation by using pf output as the objective function!!!
 # add in option to have random chance of grid failure based on real numbers
 # finish validation
+# fix diesel generator going to 900 instead of 250
+# fix grid feedin detected when not the case
 
 
 def get_load_data():
