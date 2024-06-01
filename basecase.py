@@ -160,8 +160,8 @@ if __name__ == "__main__":
     print(f"Active Energy: {gen_p['Diesel generator'].sum()/1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum()/1000:.0f} MVArh")
     print(f"Apparent Energy: {calc_s(gen_p['Diesel generator'].sum()/1000, gen_q['Diesel generator'].sum()/1000):.0f} MVAh")
-    print(f"Fuel Usage: {calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator']):.0f} l")
-    print(f"Fuel Cost: €{calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])*0.81:.0f}\n")
+    print(f"Fuel Usage: {calculate_diesel_fuel_usage(calc_s(gen_p['Diesel generator'], gen_q['Diesel generator'])):.0f} l")
+    print(f"Fuel Cost: €{calculate_diesel_fuel_usage(calc_s(gen_p['Diesel generator'], gen_q['Diesel generator']))*0.81:.0f}\n")
 
     print("Energy Consumed by Load: ")
     print(f"Active Energy: {load_p['Plant load'].sum()/1000:.0f} MWh")

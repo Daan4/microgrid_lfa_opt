@@ -88,7 +88,7 @@ def get_electricity_price(datetime):
     return price
 
 
-def calculate_diesel_fuel_usage(p, q):
+def calculate_diesel_fuel_usage(s):
     """
     Calculate diesel fuel generation based on approximate diesel consumption chart here for a 750kW genset.
     Values inbetween the given points are linearly interpolated.
@@ -103,21 +103,29 @@ def calculate_diesel_fuel_usage(p, q):
     :param q: reactive power usage
     :return: diesel usage in liters
     """
-    p = p.apply(lambda x: x ** 2)
-    q = q.apply(lambda x: x ** 2)
-    s = p.add(q)
-    s = s.apply(lambda x: math.sqrt(x))
     fuel = 0
-    for v in s.values:
-        if 0 <= v < 0.25*750:
-            fuel += v / (0.25 * 750) * 62
-        elif 0.25*750 <= v < 0.5*750:
-            fuel += (v - 0.25 * 750) / (0.25 * 750) * (104 - 62) + 62
-        elif 0.5 <= v < 0.75*750:
-            fuel += (v - 0.5 * 750) / (0.25 * 750) * (149 - 104) + 104
+    try:
+        for v in s.values:
+            if 0 <= v < 0.25*750:
+                fuel += v / (0.25 * 750) * 62
+            elif 0.25*750 <= v < 0.5*750:
+                fuel += (v - 0.25 * 750) / (0.25 * 750) * (104 - 62) + 62
+            elif 0.5 <= v < 0.75*750:
+                fuel += (v - 0.5 * 750) / (0.25 * 750) * (149 - 104) + 104
+            else:
+                fuel += (v - 0.75 * 750) / (0.25 * 750) * (202 - 149) + 149
+        return fuel
+    except AttributeError:
+        if 0 <= s < 0.25*750:
+            fuel += s / (0.25 * 750) * 62
+        elif 0.25*750 <= s < 0.5*750:
+            fuel += (s - 0.25 * 750) / (0.25 * 750) * (104 - 62) + 62
+        elif 0.5 <= s < 0.75*750:
+            fuel += (s - 0.5 * 750) / (0.25 * 750) * (149 - 104) + 104
         else:
-            fuel += (v - 0.75 * 750) / (0.25 * 750) * (202 - 149) + 149
-    return fuel
+            fuel += (s - 0.75 * 750) / (0.25 * 750) * (202 - 149) + 149
+        return fuel
+
 
 
 def calculate_soc(p, q, nom_energy, soc_init, eff):

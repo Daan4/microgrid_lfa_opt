@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 from lib import calculate_electricity_costs, calculate_diesel_fuel_usage, calculate_soc, calc_s
 
 # Parameters
-PV_INSTALLED_CAPACITY = 500  # [kiloWatt-peak] ; this value can be varied to optimise the system
+PV_INSTALLED_CAPACITY = 960  # [kiloWatt-peak] ; this value can be varied to optimise the system
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
 CONVERTER_EFFICIENCY = 0.95  # efficiency for power converters https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
 BATT_EFFICIENCY = 0.9  # 10% lost on charging, 10% on discharging... seems reasonable but need source, includes converter losses
-BATT_NOM_ENERGY = 1000  # [kWh] energy capacity
+BATT_NOM_ENERGY = 2209 # [kWh] energy capacity
 #BATT_NOM_POWER = BATT_NOM_ENERGY / 10  # [kW] power limit > assume max power stored is 10 hours
 # nominal power is no issue with this large of a battery we can assume it covers any instantaneous power asked by plant
 BATT_SOC_INITIAL = BATT_NOM_ENERGY/2  # [kWh] initial state of charge
@@ -31,7 +31,6 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 # transients not taken into account, high level microgrid dispatch only
 # battery power limit constant
 # etc...
-
 
 
 def get_load_data():
@@ -366,7 +365,7 @@ if __name__ == "__main__":
     print(f"Apparent Energy: {calc_s(gen_p['Grid'].sum() / 1000, gen_q['Grid'].sum() / 1000):.0f} MVAh")
     print(f"Electricity Bill: €{calculate_electricity_costs(gen_p['Grid'], gen_q['Grid']):.0f}\n")
 
-    diesel_usage = calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])
+    diesel_usage = calculate_diesel_fuel_usage(calc_s(gen_p['Diesel generator'], gen_q['Diesel generator']))
     print("Energy Consumed from Diesel Generator: ")
     print(f"Active Energy: {gen_p['Diesel generator'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum() / 1000:.0f} MVArh")

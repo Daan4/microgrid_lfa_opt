@@ -1,63 +1,93 @@
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import *
 import math
 import pandas as pd
-from lib import calc_s
+from lib import calc_s, calculate_diesel_fuel_usage
+import sys
+from pyswarm import pso
 
 # Example load and solar profiles to ensure some usage of the diesel generator
-load_profile = np.array([])
+load_profile = None
 # Solar profile for 1 kWp installed
-solar_profile = np.array([])
+solar_profile = None
 # Zeroes indicating grid unavailability
-grid_schedule = np.array([])
+grid_schedule = None
+pv_data = None
 
-converter_efficiency = 0.95
-battery_efficiency = 0.9  # 90% for charging and discharging
+CONVERTER_EFFICIENCY = 0.95
+BATT_EFFICIENCY = 0.9  # 90% for charging and discharging
 PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https://segensolar.co.za/introduction/
+
+BATT_COST_PER_KWH = 226  # € https://www.nrel.gov/docs/fy23osti/85332.pdf
+PV_COST_PER_KW = 1600  # € https://www.solarreviews.com/blog/installing-commercial-solar-panels
+
+GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # List of hours in which grid is available, example 0 means from 00:00 through 01:00
 
 
 # Function to calculate the Loss of Load Probability and diesel generator hours needed
+
+
 def objective(x):
+    return x[1] * BATT_COST_PER_KWH + PV_COST_PER_KW * x[0]
+
+
+def constraint(x):
     pv_size = x[0]  # installed kWp
     battery_size = x[1]  # kWh
     soc = 0.5 * battery_size  # State of Charge (starts at 50%)
-    diesel_needed_hours = 0  # Number of hours diesel generator is needed
-    pv_curtail_hours = 0  # Number of hours the pv is curtailed
+    fuel_usage = 0
 
-    for t in range(len(load_profile)):
-        # Calculate PV output based on normalised solar profile, pv_size.
-        # Capped to load demand (no feed-in allowed)
-        energy_pv = min(pv_size * solar_profile[t], load_profile[t])
+    index = load_p_data.index
 
-        if grid_schedule[t] == 0:  # Grid disconnected
-            energy_grid = 0
+    for dt in index:
+        s_load = math.sqrt(load_p_data[dt]**2 + load_q_data[dt]**2)
+        s_pv = pv_data[dt] * pv_size
+        s_diesel = 0
+        s_batt = 0
+
+        if s_pv > s_load:
+            # Overproduction of PV
+            if soc <= battery_size - (s_pv - s_load) * (BATT_EFFICIENCY):
+                # pv overproduction used to charge battery if there is space in the battery
+                s_batt = -(s_pv - s_load)
+            else:
+                # pv overproduction wasted by curtailment
+                s_pv = s_load
+        elif s_pv < s_load:
+            # Gap between pv and load is filled based on priority
+            if soc > 0.2*battery_size + (s_load-s_pv) / (BATT_EFFICIENCY):
+                # battery can be used while staying above 20% soc
+                s_batt = s_load - s_pv
+            elif dt.hour not in GRID_AVAILABLE_HOURS:
+                # Grid not available, so gap will have to be made up with remaining battery (under 20% soc) + diesel genset
+                if soc >= (s_load-s_pv) / (BATT_EFFICIENCY):
+                    # Battery can be used while staying above 0 soc
+                    s_batt = s_load - s_pv
+                else:
+                    # Battery cannot be used while staying above 0 soc. diesel generator kicks in and charges battery with remainder
+                    s_diesel = max(250, s_load - s_pv)
+                    s_diesel = min(750, s_diesel)
+                    if s_diesel > s_load - s_pv:
+                        s_batt = s_load - s_pv - s_diesel
+
+        if s_diesel > 0:
+            fuel_usage += calculate_diesel_fuel_usage(s_diesel)
+
+        # adjust soc
+        if s_batt >= 0:
+            soc -= s_batt / BATT_EFFICIENCY
         else:
-            energy_grid = max(0, load_profile[t] - energy_pv)
-
-        # battery fills the gap
-        energy_battery = load_profile[t] - energy_pv - energy_grid
-
-        # update soc based on energy supplied
-        if energy_battery >= 0:
-            soc -= energy_battery / (battery_efficiency * converter_efficiency)
-        else:
-            soc -= energy_battery * (battery_efficiency * converter_efficiency)
-
-        # cap soc, if soc is higher than pv should be curtailed
-        if soc > battery_size:
-            pv_curtail_hours += 1
+            soc -= s_batt * BATT_EFFICIENCY
         soc = min(soc, battery_size)
+        soc = max(0, soc)
 
-        # cap soc, if soc got below 0 it means the diesel generator is needed to fill the gap
-        if soc < 0:
-            diesel_needed_hours += 1
+    #print(pv_size, battery_size, fuel_usage)
 
-        soc = max(soc, 0)
+    if fuel_usage < 0.09*318242:
+        return 1
+    else:
+        return -1
 
-    # output function chosen such that it minimizes diesel needed, pv curtailment, and battery sizing
-    output = math.sqrt(diesel_needed_hours**2 + pv_curtail_hours**2)
-
-    return float(diesel_needed_hours)
 
 
 # Detailed debugging to check if optimizer changes the values
@@ -66,20 +96,28 @@ def debug_optimizer(result, initial_guess):
     print(f"Initial Guess: {initial_guess}")
     print(f"Optimal PV size: {result.x[0]}")
     print(f"Optimal Battery size: {result.x[1]}")
-    print(f"Objective value: {result.fun}")
-    print(f"Diesel needed hours: {result.fun[0]}")
-    #print(f"PV curtail hours: {result.fun[1]}\n")
+    print(f"Objective value: {result.fun}\n")
 
 
 def optimize(initial_guess):
-    # Define bounds for PV size and battery size
-    bounds = [[0, 0], [np.inf, np.inf]]  # PV size and Battery size must be non-negative
 
     # Use the minimize function to find the optimal sizes
-    result = least_squares(objective, initial_guess, bounds=bounds, method='trf', diff_step=1, loss='cauchy')
+    result = least_squares(objective, initial_guess, bounds=[[0, 0], [np.inf, np.inf]], method='trf', diff_step=1.2, loss='cauchy', tr_solver='lsmr')
+    #result = dual_annealing(objective, bounds=[(500, 5000), (5000, 100000)], maxiter=10000,x0=initial_guess)
 
     # Debug output to ensure optimizer worked correctly
     debug_optimizer(result, initial_guess)
+
+    return result
+
+
+def optimize_swarm():
+    xopt, fopt = pso(objective, [500, 500], [2000, 50000], f_ieqcons=constraint, debug=True)
+
+    print("Optimization Result:")
+    print(f"Optimal PV size: {xopt[0]}")
+    print(f"Optimal Battery size: {xopt[1]}")
+    print(f"Objective value: {fopt}\n")
 
 
 if __name__ == "__main__":
@@ -93,7 +131,18 @@ if __name__ == "__main__":
     load_p_data = pd.Series(data.kW.values, index).resample("1h").mean()
     load_q_data = pd.Series(data.kVAr.values, index).resample("1h").mean()
     load_s_data = calc_s(load_p_data, load_q_data)
-    load_profile = np.array(load_s_data.array)
+    load_profile = load_s_data
+
+    index = pd.date_range("2021-01-01 00:00", "2021-12-31 23:30", freq="1h")
+    data = pd.read_csv("data/irradiance.csv")
+    # Scale to match expected yearly production
+    data["ALLSKY_SFC_SW_DWN"] = data["ALLSKY_SFC_SW_DWN"] * PV_PRODUCTION_PER_KWP / data["ALLSKY_SFC_SW_DWN"].sum()
+    data = pd.Series(data["ALLSKY_SFC_SW_DWN"].values, index)
+    # Apply inverter efficiency
+    data = data * CONVERTER_EFFICIENCY
+    pv_data = data
+
+
 
     # Set grid schedule
     #  Diesel generator is on between 0600-1030, 1400-1630, 2200-0030
@@ -102,10 +151,25 @@ if __name__ == "__main__":
     grid_schedule = np.array(daily_pattern * 365)
 
     # compare different starting guesses
-    # optimize([100, 100])
-    # optimize([10000, 10000])
-    optimize([100, 100])
-    # optimize([100000, 100000])
+    # best_pv = -1
+    # best_batt = -1
+    # best_obj = sys.maxsize
+    # for i in range(100, 2000, 100):
+    #     result = optimize([i, i])
+    #     obj = math.sqrt(result.fun[0]**2 + result.fun[1]**2)
+    #     if obj < best_obj:
+    #         best_obj = min(best_obj, obj)
+    #         best_pv = result.x[0]
+    #         best_batt = result.x[1]
+    #
+    # print(f"Best PV: {best_pv}, Best Batt: {best_batt}")
+
+    # 1187, 2781 gives 10176l in real model...
+    #print(constraint([700, 1000]))
+
+    #optimize([750, 5000])
+
+    optimize_swarm()
 
     # Initial result to try model with:
     # PV size 34.355 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
