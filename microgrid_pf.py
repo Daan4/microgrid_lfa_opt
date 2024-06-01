@@ -23,6 +23,16 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 # finish validation? needed?
 # fix grid feedin detected when not the case
 
+#assumptions
+# self discharge rate not taken into account
+# ignoring line losses
+# balanced system
+# taking into account apparent power, assuming that reactive power can be met
+# transients not taken into account, high level microgrid dispatch only
+# battery power limit constant
+# etc...
+
+
 
 def get_load_data():
     """
@@ -168,7 +178,7 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
 
         if s_pv > s_load:
             # Overproduction of PV
-            if soc <= BATT_NOM_ENERGY - (s_pv - s_load) * (BATT_EFFICIENCY * CONVERTER_EFFICIENCY):
+            if soc <= BATT_NOM_ENERGY - (s_pv - s_load) * (BATT_EFFICIENCY):
                 # pv overproduction used to charge battery if there is space in the battery
                 s_batt = -(s_pv - s_load)
             else:
@@ -176,12 +186,12 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
                 s_pv = s_load
         elif s_pv < s_load:
             # Gap between pv and load is filled based on priority
-            if soc > 0.2*BATT_NOM_ENERGY + (s_load-s_pv) / (BATT_EFFICIENCY * CONVERTER_EFFICIENCY):
+            if soc > 0.2*BATT_NOM_ENERGY + (s_load-s_pv) / (BATT_EFFICIENCY):
                 # battery can be used while staying above 20% soc
                 s_batt = s_load - s_pv
             elif dt.hour not in GRID_AVAILABLE_HOURS:
                 # Grid not available, so gap will have to be made up with remaining battery (under 20% soc) + diesel genset
-                if soc >= (s_load-s_pv) / (BATT_EFFICIENCY * CONVERTER_EFFICIENCY):
+                if soc >= (s_load-s_pv) / (BATT_EFFICIENCY):
                     # Battery can be used while staying above 0 soc
                     s_batt = s_load - s_pv
                 else:
@@ -193,9 +203,9 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
 
         # adjust soc
         if s_batt >= 0:
-            soc -= s_batt / (BATT_EFFICIENCY * CONVERTER_EFFICIENCY)
+            soc -= s_batt / BATT_EFFICIENCY
         else:
-            soc -= s_batt * (BATT_EFFICIENCY * CONVERTER_EFFICIENCY)
+            soc -= s_batt * BATT_EFFICIENCY
         soc = min(soc, BATT_NOM_ENERGY)
         soc = max(0, soc)
 
@@ -219,7 +229,7 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
     return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv
 
 
-def validate_results(gen_p, gen_q, soc, diesel_usage):
+def validate_results(gen_p, gen_q, soc, diesel_usage, store_p, store_q, pv_data):
     """
     Check if the project goals are met:
 
@@ -247,20 +257,42 @@ def validate_results(gen_p, gen_q, soc, diesel_usage):
         print(f"Diesel usage is LOWER than target of {318242 * 0.1} l")
 
     # check grid feed in, ignore floating point errors
-    if gen_p["Grid"].max() > 0 or gen_q["Grid"].max() > 0:
-        peak = math.sqrt(gen_p['Grid'].clip(lower=0).max()**2+gen_q['Grid'].clip(lower=0).max()**2)
-        total = math.sqrt(gen_p['Grid'].clip(lower=0).sum()**2+gen_q['Grid'].clip(lower=0).sum()**2)
+    if gen_p["Grid"].min() < 0 or gen_q["Grid"].min() < 0:
+        peak = calc_s(gen_p['Grid'].clip(upper=0).min(), gen_q['Grid'].clip(upper=0).min())
+        total = calc_s(gen_p['Grid'].clip(upper=0).sum(), gen_q['Grid'].clip(upper=0).sum())
         if peak > 1e-5 or total > 1e-5:
             print(f"Feed-in to grid detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
 
     # check load met, ie there should be no supply from grid when grid is unavailable
-    print("TODO! detect peak and total. To get rid of this and feedin we will need to have some margin in control logic")
+    peak = 0
+    total = 0
+    s = calc_s(gen_p["Grid"], gen_q["Grid"])
+    for index, value in s.items():
+        if index.hour not in GRID_AVAILABLE_HOURS:
+            peak = max(peak, s[index])
+            total += s[index]
+    if peak > 1e-5 or total > 1e-5:
+        print(f"Load not met, feed-in from grid during grid unavailability detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
 
-    # Battery Losses
     # Calculate total battery losses
+    loss = 0
+    s = calc_s(store_p, store_q)
+    for index, value in s.items():
+        if s[index] < 0:
+            loss += abs(s[index] - (s[index] * BATT_EFFICIENCY))
+        elif s[index] > 0:
+            loss += s[index]/BATT_EFFICIENCY - s[index]
+    if loss > 1e-5:
+        print(f"Battery losses: {loss/1000.0:.1f}kVAh.")
 
-    # Curtailed PV
     # Calculate curtailed PV
+    curtailed = 0
+    s = calc_s(gen_p["PV"], gen_q["PV"])
+    for index, value in s.items():
+        if s[index] < pv_data[index]:
+            curtailed += pv_data[index] - s[index]
+    if curtailed > 1e-5:
+        print(f"Curtailed PV: {curtailed/1000.0:.1f}kVAh.")
 
 
 if __name__ == "__main__":
@@ -277,7 +309,7 @@ if __name__ == "__main__":
     store_p = network.storage_units_t.p
     store_q = network.storage_units_t.q
 
-    soc = calculate_soc(store_p, store_q, BATT_NOM_ENERGY, BATT_SOC_INITIAL, BATT_EFFICIENCY*CONVERTER_EFFICIENCY)
+    soc = calculate_soc(store_p, store_q, BATT_NOM_ENERGY, BATT_SOC_INITIAL, BATT_EFFICIENCY)
 
     # Plotting
     # Plot Active Power
@@ -354,6 +386,6 @@ if __name__ == "__main__":
 
     print(f"Average SOC: {soc.mean():.1f}%\n")
 
-    validate_results(gen_p, gen_q, soc, diesel_usage)
+    validate_results(gen_p, gen_q, soc, diesel_usage, store_q, store_q, get_pv_data())
 
     plt.show()
