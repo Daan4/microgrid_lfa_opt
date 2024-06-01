@@ -2,6 +2,7 @@ import numpy as np
 from scipy.optimize import least_squares
 import math
 import pandas as pd
+from lib import calc_s
 
 # Example load and solar profiles to ensure some usage of the diesel generator
 load_profile = np.array([])
@@ -56,7 +57,7 @@ def objective(x):
     # output function chosen such that it minimizes diesel needed, pv curtailment, and battery sizing
     output = math.sqrt(diesel_needed_hours**2 + pv_curtail_hours**2)
 
-    return float(diesel_needed_hours), float(pv_curtail_hours)
+    return float(diesel_needed_hours)
 
 
 # Detailed debugging to check if optimizer changes the values
@@ -67,7 +68,7 @@ def debug_optimizer(result, initial_guess):
     print(f"Optimal Battery size: {result.x[1]}")
     print(f"Objective value: {result.fun}")
     print(f"Diesel needed hours: {result.fun[0]}")
-    print(f"PV curtail hours: {result.fun[1]}\n")
+    #print(f"PV curtail hours: {result.fun[1]}\n")
 
 
 def optimize(initial_guess):
@@ -91,10 +92,7 @@ if __name__ == "__main__":
     data = pd.read_csv("data/load_half_hourly.csv")
     load_p_data = pd.Series(data.kW.values, index).resample("1h").mean()
     load_q_data = pd.Series(data.kVAr.values, index).resample("1h").mean()
-    load_p_data = load_p_data.apply(lambda x: x**2)
-    load_q_data = load_q_data.apply(lambda x: x**2)
-    load_s_data = load_p_data.add(load_q_data)
-    load_s_data = load_s_data.apply(lambda x: math.sqrt(x))
+    load_s_data = calc_s(load_p_data, load_q_data)
     load_profile = np.array(load_s_data.array)
 
     # Set grid schedule
@@ -106,7 +104,7 @@ if __name__ == "__main__":
     # compare different starting guesses
     # optimize([100, 100])
     # optimize([10000, 10000])
-    optimize([30000, 30000])
+    optimize([100, 100])
     # optimize([100000, 100000])
 
     # Initial result to try model with:

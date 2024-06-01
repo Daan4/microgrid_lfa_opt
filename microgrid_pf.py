@@ -2,7 +2,7 @@ import pypsa
 import math
 import pandas as pd
 import matplotlib.pyplot as plt
-from lib import calculate_electricity_costs, calculate_diesel_fuel_usage, calculate_soc
+from lib import calculate_electricity_costs, calculate_diesel_fuel_usage, calculate_soc, calc_s
 
 # Parameters
 PV_INSTALLED_CAPACITY = 500  # [kiloWatt-peak] ; this value can be varied to optimise the system
@@ -20,8 +20,7 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 # pyPSA optimisation
 # optimisation by using pf output as the objective function!!!
 # add in option to have random chance of grid failure based on real numbers
-# finish validation
-# fix diesel generator going to 900 instead of 250
+# finish validation? needed?
 # fix grid feedin detected when not the case
 
 
@@ -64,7 +63,7 @@ def plot_load_data():
     plt.figure()
     plt.plot(load_p_data, label="Active Power Demand")
     plt.plot(load_q_data, label="Reactive Power Demand")
-    plt.plot(load_p_data + load_q_data, label="Apparent Power Demand")
+    plt.plot(calc_s(load_p_data, load_q_data), label="Apparent Power Demand")
     plt.xlabel("Time")
     plt.ylabel("Power [kW/kVAr/kVA]")
     plt.legend(loc="best")
@@ -187,8 +186,8 @@ def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
                     s_batt = s_load - s_pv
                 else:
                     # Battery cannot be used while staying above 0 soc. diesel generator kicks in and charges battery with remainder
-                    s_diesel = min(250, s_load - s_pv)
-                    s_diesel = max(750, s_diesel)
+                    s_diesel = max(250, s_load - s_pv)
+                    s_diesel = min(750, s_diesel)
                     if s_diesel > s_load - s_pv:
                         s_batt = s_load - s_pv - s_diesel
 
@@ -257,6 +256,12 @@ def validate_results(gen_p, gen_q, soc, diesel_usage):
     # check load met, ie there should be no supply from grid when grid is unavailable
     print("TODO! detect peak and total. To get rid of this and feedin we will need to have some margin in control logic")
 
+    # Battery Losses
+    # Calculate total battery losses
+
+    # Curtailed PV
+    # Calculate curtailed PV
+
 
 if __name__ == "__main__":
     network = initialize_network('priority')
@@ -303,11 +308,11 @@ if __name__ == "__main__":
 
     # Plot Apparent Power
     plt.figure(2)
-    plt.plot(gen_p["Diesel generator"] + gen_q["Diesel generator"], label="Diesel Generator")
-    plt.plot(gen_p["Grid"] + gen_q["Grid"], label="Grid")
-    plt.plot(gen_p["PV"] + gen_q["PV"], label="PV")
-    plt.plot(store_p["BESS"] + store_q["BESS"], label="BESS")
-    plt.plot(load_p + load_q, label="Load")
+    plt.plot(calc_s(gen_p["Diesel generator"], gen_q["Diesel generator"]), label="Diesel Generator")
+    plt.plot(calc_s(gen_p["Grid"], gen_q["Grid"]), label="Grid")
+    plt.plot(calc_s(gen_p["PV"], gen_q["PV"]), label="PV")
+    plt.plot(calc_s(store_p["BESS"], store_q["BESS"]), label="BESS")
+    plt.plot(calc_s(load_p, load_q), label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("S [kVA]")
     plt.grid(True)
@@ -326,26 +331,26 @@ if __name__ == "__main__":
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Grid'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Grid'].sum() / 1000 + gen_q['Grid'].sum() / 1000:.0f} MVAh")
+    print(f"Apparent Energy: {calc_s(gen_p['Grid'].sum() / 1000, gen_q['Grid'].sum() / 1000):.0f} MVAh")
     print(f"Electricity Bill: €{calculate_electricity_costs(gen_p['Grid'], gen_q['Grid']):.0f}\n")
 
     diesel_usage = calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])
     print("Energy Consumed from Diesel Generator: ")
     print(f"Active Energy: {gen_p['Diesel generator'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Diesel generator'].sum() / 1000 + gen_q['Diesel generator'].sum() / 1000:.0f} MVAh")
+    print(f"Apparent Energy: {calc_s(gen_p['Diesel generator'].sum() / 1000, gen_q['Diesel generator'].sum() / 1000):.0f} MVAh")
     print(f"Fuel Usage: {diesel_usage:.0f} l")
     print(f"Fuel Cost: €{diesel_usage*0.81:.0f}\n")
 
     print("Energy Consumed from PV: ")
     print(f"Active Energy: {gen_p['PV'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['PV'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['PV'].sum() / 1000 + gen_q['PV'].sum() / 1000:.0f} MVAh\n")
+    print(f"Apparent Energy: {calc_s(gen_p['PV'].sum() / 1000, gen_q['PV'].sum() / 1000):.0f} MVAh\n")
 
     print("Energy Consumed by Load: ")
     print(f"Active Energy: {load_p['Plant load'].sum() / 1000:.0f} MWh")
     print(f"Reactive Energy: {load_q['Plant load'].sum() / 1000:.0f} MVArh")
-    print(f"Apparent Energy: {load_p['Plant load'].sum() / 1000 + load_q['Plant load'].sum() / 1000:.0f} MVAh\n")
+    print(f"Apparent Energy: {calc_s(load_p['Plant load'].sum() / 1000, load_q['Plant load'].sum() / 1000):.0f} MVAh\n")
 
     print(f"Average SOC: {soc.mean():.1f}%\n")
 

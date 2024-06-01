@@ -26,7 +26,7 @@ def plot_load_data():
     plt.figure()
     plt.plot(load_p_data, label="Active Power Demand")
     plt.plot(load_q_data, label="Reactive Power Demand")
-    plt.plot(load_p_data+load_q_data, label="Apparent Power Demand")
+    plt.plot(calc_s(load_p_data, load_q_data), label="Apparent Power Demand")
     plt.xlabel("Time")
     plt.ylabel("Power [kW/kVAr/kVA]")
     plt.legend(loc="best")
@@ -139,9 +139,9 @@ if __name__ == "__main__":
 
     # Plot Apparent Power
     plt.figure(2)
-    plt.plot(gen_p["Diesel generator"] + gen_q["Diesel generator"], label="Diesel Generator")
-    plt.plot(gen_p["Grid"] + gen_q["Grid"], label="Grid")
-    plt.plot(load_p + load_q, label="Load")
+    plt.plot(calc_s(gen_p["Diesel generator"], gen_q["Diesel generator"]), label="Diesel Generator")
+    plt.plot(calc_s(gen_p["Grid"], gen_q["Grid"]), label="Grid")
+    plt.plot(calc_s(load_p, load_q), label="Load")
     plt.xlabel("Time (hour)")
     plt.ylabel("S [kVA]")
     plt.grid(True)
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     print("Energy Consumed from Grid")
     print(f"Active Energy: {gen_p['Grid'].sum()/1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Grid'].sum()/1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Grid'].sum()/1000+gen_q['Grid'].sum()/1000:.0f} MVAh")
+    print(f"Apparent Energy: {calc_s(gen_p['Grid'].sum()/1000, gen_q['Grid'].sum()/1000):.0f} MVAh")
     print(f"Electricity Bill: €{calculate_electricity_costs(gen_p['Grid'], gen_q['Grid']):.0f}\n")
 
     # https: // www.energy.gov.za / files / esources / petroleum / September2021 / Fuel - Price - History.pdf
@@ -159,13 +159,13 @@ if __name__ == "__main__":
     print("Energy Consumed from Diesel Generator: ")
     print(f"Active Energy: {gen_p['Diesel generator'].sum()/1000:.0f} MWh")
     print(f"Reactive Energy: {gen_q['Diesel generator'].sum()/1000:.0f} MVArh")
-    print(f"Apparent Energy: {gen_p['Diesel generator'].sum()/1000+gen_q['Diesel generator'].sum()/1000:.0f} MVAh")
+    print(f"Apparent Energy: {calc_s(gen_p['Diesel generator'].sum()/1000, gen_q['Diesel generator'].sum()/1000):.0f} MVAh")
     print(f"Fuel Usage: {calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator']):.0f} l")
     print(f"Fuel Cost: €{calculate_diesel_fuel_usage(gen_p['Diesel generator'], gen_q['Diesel generator'])*0.81:.0f}\n")
 
     print("Energy Consumed by Load: ")
     print(f"Active Energy: {load_p['Plant load'].sum()/1000:.0f} MWh")
     print(f"Reactive Energy: {load_q['Plant load'].sum()/1000:.0f} MVArh")
-    print(f"Apparent Energy: {load_p['Plant load'].sum()/1000+load_q['Plant load'].sum()/1000:.0f} MVAh")
+    print(f"Apparent Energy: {calc_s(load_p['Plant load'].sum()/1000, load_q['Plant load'].sum()/1000):.0f} MVAh")
 
     plt.show()

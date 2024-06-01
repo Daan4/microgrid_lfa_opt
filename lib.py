@@ -11,7 +11,7 @@ def calculate_electricity_costs(p, q):
     :return: calculate energy costs from grid in euros
     """
 
-    cost = 12*(113.275+315.041) # Fixed costs service charge and capacity charge per month
+    cost = 12*(113.275+315.041)  # Fixed costs service charge and capacity charge per month
 
     # Calculate variable cost by active power usage
     for (index, value) in p.items():
@@ -19,10 +19,7 @@ def calculate_electricity_costs(p, q):
         cost += value * price
 
     # Calculate monthly variable capacity costs based on peak kVA and kVAr in each month
-    p = p.apply(lambda x: x ** 2)
-    q = q.apply(lambda x: x ** 2)
-    s = p.add(q)
-    s = s.apply(lambda x: math.sqrt(x))
+    s = calc_s(p, q)
     max_s = s.groupby(s.index.month).max()
     max_q = q.groupby(q.index.month).max()
 
@@ -143,3 +140,19 @@ def calculate_soc(p, q, nom_energy, soc_init, eff):
     output = output.apply(lambda x: x / nom_energy * 100)
 
     return pd.Series(output, p.index)
+
+
+def calc_s(p, q):
+    if isinstance(p, pd.Series):
+        p = p.apply(lambda x: math.copysign(x ** 2, x))
+        q = q.apply(lambda x: math.copysign(x ** 2, x))
+        s = p.add(q)
+        s = s.apply(lambda x: math.sqrt(x) if x >= 0 else -1 * math.sqrt(x * -1))
+    elif isinstance(p, pd.DataFrame):
+        p = p[p.columns[0]].apply(lambda x: math.copysign(x ** 2, x))
+        q = q[q.columns[0]].apply(lambda x: math.copysign(x ** 2, x))
+        s = p.add(q)
+        s = s.apply(lambda x: math.sqrt(x) if x >= 0 else -1 * math.sqrt(x * -1))
+    else:
+        s = math.copysign(math.sqrt(p**2 + q**2), p)
+    return s
