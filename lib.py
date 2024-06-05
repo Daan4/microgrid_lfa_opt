@@ -38,16 +38,20 @@ def get_electricity_price(datetime):
     holidays: https://www.gov.za/about-sa/public-holidays
 
     Summer energy charge (April-September)
-    Peak 0.117 €/kWh (0700-1000 and 1800-2000 on weekdays, except public holidays which are: 1/1, 21/3, 29/3, 1/4, 27/4, 1/5, 29/5, 16/6, 17/6, 9/8, 24/9, 16/12, 25/12, 26/12. If a public holiday falls on a sunday, it is the next monday instead.
-    Standard 0.088 €/kWh (0600-0700, 1000-1800, 2000-2200 on weekdays, 0700-1200 and 1800-2000 on saturdays and public holidays)
-    Off-peak 0.068 €/kWh (1200-0600 on weekdays, 1200-1800 and 2000-0700 on saturdays and public holidays, all day on sundays)
+    Peak 0.117 €/kWh 0700-1000 and 1800-2000 on weekdays, except public holidays which are:
+        1/1, 21/3, 29/3, 1/4, 27/4, 1/5, 29/5, 16/6, 17/6, 9/8, 24/9, 16/12, 25/12, 26/12. If a public holiday
+        falls on a sunday, it is the next monday instead.
+    Standard 0.088 €/kWh (0600-0700, 1000-1800, 2000-2200 on weekdays, 0700-1200 and 1800-2000 on saturdays
+        and public holidays)
+    Off-peak 0.068 €/kWh (1200-0600 on weekdays, 1200-1800 and 2000-0700 on saturdays and public holidays,
+        all day on sundays)
 
     Winter energy charge (October-March)
     Peak 0.279 €/kWh
     Standard 0.106 €/kWh
     Off-peak 0.073 €/kWh
 
-    :return:
+    :return: electricity price in euros/kWh
     """
     if 4 <= datetime.month <= 9:
         # Summer
@@ -99,9 +103,8 @@ def calculate_diesel_fuel_usage(s):
     75% load: 149 l/h
     100% load: 202 l/h
 
-    :param p: active power usage
-    :param q: reactive power usage
-    :return: diesel usage in liters
+    :param s: apparent power usage
+    :return: diesel usage in liters per hour
     """
     fuel = 0
     try:
@@ -125,7 +128,6 @@ def calculate_diesel_fuel_usage(s):
         else:
             fuel += (s - 0.75 * 750) / (0.25 * 750) * (202 - 149) + 149
         return fuel
-
 
 
 def calculate_soc(p, q, nom_energy, soc_init, eff):

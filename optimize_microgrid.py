@@ -1,9 +1,7 @@
 import numpy as np
-from scipy.optimize import *
 import math
 import pandas as pd
 from lib import calc_s, calculate_diesel_fuel_usage
-import sys
 from pyswarm import pso
 
 # Example load and solar profiles to ensure some usage of the diesel generator

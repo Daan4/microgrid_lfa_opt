@@ -21,6 +21,9 @@ def get_load_data():
 
 
 def plot_load_data():
+    """
+    Plot the load data
+    """
     (load_p_data, load_q_data) = get_load_data()
 
     plt.figure()
@@ -36,38 +39,41 @@ def plot_load_data():
 
 
 def initialize_network():
-    network = pypsa.Network()
+    """
+    Initialize the pypsa network
+
+    :return: network
+    """
+
+    _network = pypsa.Network()
 
     (load_p_data, load_q_data) = get_load_data()
 
-    network.snapshots = load_p_data.index
+    _network.snapshots = load_p_data.index
 
     (p_set_diesel, q_set_diesel) = calculate_diesel_setpoints(load_p_data, load_q_data)
 
     # AC bus
     # 400V
-    network.add("Bus", "AC bus", v_nom=400)
+    _network.add("Bus", "AC bus", v_nom=400)
 
     # Diesel generator
-    # Rated capacity 750kVA
-    # Minimum load 250kVA
-    # Takes over from
-    network.add("Generator", "Diesel generator", bus="AC bus", control="PQ", p_set=p_set_diesel, q_set=q_set_diesel)
+    _network.add("Generator", "Diesel generator", bus="AC bus", control="PQ", p_set=p_set_diesel, q_set=q_set_diesel)
 
     # Plant load
-    # Modelled as a time varying load
-    network.add("Load", "Plant load", bus="AC bus", p_set=load_p_data, q_set=load_q_data)
+    _network.add("Load", "Plant load", bus="AC bus", p_set=load_p_data, q_set=load_q_data)
 
     # Grid connection
     # Modelled as a slack generator, since feeding back into the grid is not allowed.
-    network.add("Generator", "Grid", bus="AC bus", control="Slack")
+    _network.add("Generator", "Grid", bus="AC bus", control="Slack")
 
-    return network
+    return _network
 
 
 def calculate_diesel_setpoints(load_p_data, load_q_data):
     """
-    Calculate the diesel p and q setpoints based on the load shedding scheme. In the times where there is no grid, the diesel generator supplies the load power demand
+    Calculate the diesel p and q setpoints based on the load shedding scheme.
+    In the times where there is no grid, the diesel generator supplies the load power demand
     Diesel generator is on between 0600-1030, 1400-1630, 2200-0030
 
     :param load_p_data: load active power
