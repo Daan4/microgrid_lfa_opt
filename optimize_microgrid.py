@@ -22,14 +22,17 @@ PV_COST_PER_KW = 1600  # € https://www.solarreviews.com/blog/installing-commer
 GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # List of hours in which grid is available, example 0 means from 00:00 through 01:00
 
 
-# Function to calculate the Loss of Load Probability and diesel generator hours needed
-
-
 def objective(x):
+    """"
+    Objective function which estimates the system cost
+    """
     return x[1] * BATT_COST_PER_KWH + PV_COST_PER_KW * x[0]
 
 
 def constraint(x):
+    """
+    Contraint function which calculates the diesel fuel usage in a year for a given system sizing.
+    """
     pv_size = x[0]  # installed kWp
     battery_size = x[1]  # kWh
     soc = 0.5 * battery_size  # State of Charge (starts at 50%)
@@ -87,28 +90,6 @@ def constraint(x):
         return -1
 
 
-
-# Detailed debugging to check if optimizer changes the values
-def debug_optimizer(result, initial_guess):
-    print("Optimization Result:")
-    print(f"Initial Guess: {initial_guess}")
-    print(f"Optimal PV size: {result.x[0]}")
-    print(f"Optimal Battery size: {result.x[1]}")
-    print(f"Objective value: {result.fun}\n")
-
-
-def optimize(initial_guess):
-
-    # Use the minimize function to find the optimal sizes
-    result = least_squares(objective, initial_guess, bounds=[[0, 0], [np.inf, np.inf]], method='trf', diff_step=1.2, loss='cauchy', tr_solver='lsmr')
-    #result = dual_annealing(objective, bounds=[(500, 5000), (5000, 100000)], maxiter=10000,x0=initial_guess)
-
-    # Debug output to ensure optimizer worked correctly
-    debug_optimizer(result, initial_guess)
-
-    return result
-
-
 def optimize_swarm():
     xopt, fopt = pso(objective, [500, 500], [2000, 50000], f_ieqcons=constraint, debug=True)
 
@@ -140,37 +121,10 @@ if __name__ == "__main__":
     data = data * CONVERTER_EFFICIENCY
     pv_data = data
 
-
-
     # Set grid schedule
     #  Diesel generator is on between 0600-1030, 1400-1630, 2200-0030
     # hours shifted a bit due to using hourly pattern, but still 10 hours a day
     daily_pattern = [0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0]
     grid_schedule = np.array(daily_pattern * 365)
 
-    # compare different starting guesses
-    # best_pv = -1
-    # best_batt = -1
-    # best_obj = sys.maxsize
-    # for i in range(100, 2000, 100):
-    #     result = optimize([i, i])
-    #     obj = math.sqrt(result.fun[0]**2 + result.fun[1]**2)
-    #     if obj < best_obj:
-    #         best_obj = min(best_obj, obj)
-    #         best_pv = result.x[0]
-    #         best_batt = result.x[1]
-    #
-    # print(f"Best PV: {best_pv}, Best Batt: {best_batt}")
-
-    # 1187, 2781 gives 10176l in real model...
-    #print(constraint([700, 1000]))
-
-    #optimize([750, 5000])
-
     optimize_swarm()
-
-    # Initial result to try model with:
-    # PV size 34.355 MWp ~$34 million cost assuming $1/Wp  https://www.solar.com/learn/solar-panel-cost/
-    # battery size 666.322 MWh ~$92.5 million cost assuming $139/kWh
-    # seems reasonable? Let's try it out!
-    # https://atb.nrel.gov/electricity/2023/utility-scale_battery_storage stating $338 dollar per kwh in 21 for 60MW 600MWh battery which is similar to hours
