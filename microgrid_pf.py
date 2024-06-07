@@ -10,7 +10,8 @@ PV_PRODUCTION_PER_KWP = 1871  # [kWh] per installed kiloWatt-peak, source: https
 CONVERTER_EFFICIENCY = 0.95  #  efficiency for power converters https://www.edn.com/efficiency-calculations-for-power-converters/ https://www.energysavingtrust.org.uk/sites/default/files/reports/Solar%20inverters.pdf
 BATT_EFFICIENCY = 0.9  # 10% lost on charging, 10% on discharging https://www.eia.gov/todayinenergy/detail.php?id=46756
 BATT_NOM_ENERGY = 2209  # [kWh] battery energy capacity
-# nominal power is no issue with this large of a battery we can assume it covers any instantaneous power asked by plant
+# Assume that the battery can be fully charged/discharged in 2 hours
+BATT_NOM_POWER = BATT_NOM_ENERGY / 2
 BATT_SOC_INITIAL = BATT_NOM_ENERGY/2  # [kWh] initial state of charge assumed to be 50%
 GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # List of hours in which grid is available, example 0 means from 00:00 through 01:00
 
@@ -18,6 +19,7 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 # pv data validation
 # 2nd control strategy
 # simulate random grid failure
+# take battery power limit into account
 
 
 #assumptions
@@ -150,8 +152,100 @@ def calculate_setpoints(load_p_data, load_q_data, pv_data, strategy):
     """
     if strategy == 'priority':
         return calculate_setpoints_priority(load_p_data, load_q_data, pv_data)
+    elif strategy == 'tou':
+        return calculate_setpoints_tou(load_p_data, load_q_data, pv_data)
     else:
         raise NotImplemented(f"Strategy {strategy} is not implemented.")
+
+
+def calculate_setpoints_tou(load_p_data, load_q_data, pv_data):
+    """
+    Implement time-of-use optimize strategy
+
+    Use as much PV as possible, using the excess to charge the batteries (or curtail if full)
+
+    Prioritize using the battery when prices are high, and grid when prices are low
+
+    So use grid during off-peak hours only,
+    use battery during standard and peak hours
+    recharge battery during off-peak hours if needed (if battery is under 50% during off-peak)
+
+    Priority 1: PV
+    Priority 2: BESS (only if soc > 20%)
+    Priority 3: Grid
+    Priority 4: BESS (soc <= 20%)
+    Priority 5: genset
+
+    """
+    # track the battery state of charge in kWh
+    _soc = BATT_SOC_INITIAL
+
+    index = load_p_data.index
+
+    p_set_diesel = []
+    q_set_diesel = []
+    p_set_battery = []
+    q_set_battery = []
+    p_set_pv = []
+    q_set_pv = []
+
+    for dt in index:
+        s_load = math.sqrt(load_p_data[dt]**2 + load_q_data[dt]**2)
+        s_pv = pv_data[dt]
+        s_diesel = 0
+        s_batt = 0
+
+        if s_pv > s_load:
+            # Overproduction of PV
+            if _soc <= BATT_NOM_ENERGY - (s_pv - s_load) * (BATT_EFFICIENCY):
+                # pv overproduction used to charge battery if there is space in the battery
+                s_batt = -(s_pv - s_load)
+            else:
+                # pv overproduction wasted by curtailment
+                s_pv = s_load
+        elif s_pv < s_load:
+            # Gap between pv and load is filled based on priority
+            if _soc > 0.2*BATT_NOM_ENERGY + (s_load-s_pv) / (BATT_EFFICIENCY):
+                # battery can be used while staying above 20% soc
+                s_batt = s_load - s_pv
+            elif dt.hour not in GRID_AVAILABLE_HOURS:
+                # Grid not available, so gap will have to be made up with remaining battery (under 20% soc) + diesel genset
+                if _soc >= (s_load-s_pv) / (BATT_EFFICIENCY):
+                    # Battery can be used while staying above 0 soc
+                    s_batt = s_load - s_pv
+                else:
+                    # Battery cannot be used while staying above 0 soc. diesel generator kicks in and charges battery with remainder
+                    s_diesel = max(250, s_load - s_pv)
+                    s_diesel = min(750, s_diesel)
+                    if s_diesel > s_load - s_pv:
+                        s_batt = s_load - s_pv - s_diesel
+
+        # adjust soc
+        if s_batt >= 0:
+            _soc -= s_batt / BATT_EFFICIENCY
+        else:
+            _soc -= s_batt * BATT_EFFICIENCY
+        _soc = min(_soc, BATT_NOM_ENERGY)
+        _soc = max(0, _soc)
+
+        # calculate p and q setpoints for each component
+        p_set_pv.append(s_pv / s_load * load_p_data[dt])
+        q_set_pv.append(s_pv / s_load * load_q_data[dt])
+        p_set_battery.append(s_batt / s_load * load_p_data[dt])
+
+        q_set_battery.append(s_batt / s_load * load_q_data[dt])
+        p_set_diesel.append(s_diesel / s_load * load_p_data[dt])
+        q_set_diesel.append(s_diesel / s_load * load_q_data[dt])
+        pass
+
+    p_set_diesel = pd.Series(p_set_diesel, index)
+    q_set_diesel = pd.Series(q_set_diesel, index)
+    p_set_battery = pd.Series(p_set_battery, index)
+    q_set_battery = pd.Series(q_set_battery, index)
+    p_set_pv = pd.Series(p_set_pv, index)
+    q_set_pv = pd.Series(q_set_pv, index)
+
+    return p_set_diesel, q_set_diesel, p_set_battery, q_set_battery, p_set_pv, q_set_pv
 
 
 def calculate_setpoints_priority(load_p_data, load_q_data, pv_data):
