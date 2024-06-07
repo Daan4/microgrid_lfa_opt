@@ -21,6 +21,9 @@ PV_COST_PER_KW = 1600  # € https://www.solarreviews.com/blog/installing-commer
 
 GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # List of hours in which grid is available, example 0 means from 00:00 through 01:00
 
+#  Desired diesel usage as a percentage of the original
+DIESEL_GOAL = 9
+
 
 def objective(x):
     """"
@@ -82,9 +85,7 @@ def constraint(x):
         soc = min(soc, battery_size)
         soc = max(0, soc)
 
-    #print(pv_size, battery_size, fuel_usage)
-
-    if fuel_usage < 0.09*318242:
+    if fuel_usage < DIESEL_GOAL*318242/100:
         return 1
     else:
         return -1
