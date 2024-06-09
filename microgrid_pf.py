@@ -25,19 +25,6 @@ GRID_AVAILABLE_HOURS = [1, 2, 3, 4, 5, 10, 11, 12, 13, 17, 18, 19, 20, 21]  # Li
 PRIORITY_BATTERY_BUFFER = 60  # The SOC of the battery buffer in percentage to keep for no-grid situations
 TOU_CHARGE_LEVEL = 10  # SOC to charge up to using offpeak grid in percentage
 
-# to do
-# simulate random grid failure
-
-
-# assumptions
-# self discharge rate not taken into account
-# taking into account apparent power, assuming that reactive power can be met
-# transients not taken into account, high level microgrid dispatch only
-# battery power limit constant
-# battery power no factor, assumed its sized big enough to supply demand
-# constant efficiencies
-# assumed no limits on grid connection
-
 
 def get_load_data():
     """
