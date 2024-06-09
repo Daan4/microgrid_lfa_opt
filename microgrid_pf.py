@@ -31,8 +31,6 @@ TOU_CHARGE_LEVEL = 10  # SOC to charge up to using offpeak grid in percentage
 
 # assumptions
 # self discharge rate not taken into account
-# ignoring line losses
-# balanced system
 # taking into account apparent power, assuming that reactive power can be met
 # transients not taken into account, high level microgrid dispatch only
 # battery power limit constant
@@ -72,6 +70,22 @@ def get_pv_data():
     # Apply inverter efficiency
     data = data * CONVERTER_EFFICIENCY
     return data
+
+
+def plot_pv_data():
+    """
+    Plot the pv data
+    """
+    pv_data = get_pv_data()
+
+    plt.figure()
+    plt.plot(pv_data, label="Normalized")
+    plt.xlabel("Time")
+    plt.ylabel("Irradiation")
+    plt.legend(loc="best")
+    plt.grid(True)
+    plt.title("Normalized Irradiation")
+    plt.show()
 
 
 def plot_load_data():
