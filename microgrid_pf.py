@@ -382,6 +382,8 @@ def validate_results(gen_p, gen_q, soc, diesel_usage, store_p, store_q, pv_data)
         total = calc_s(gen_p['Grid'].clip(upper=0).sum(), gen_q['Grid'].clip(upper=0).sum())
         if peak > 1e-5 or total > 1e-5:
             print(f"Feed-in to grid detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
+        else:
+            print(f"Not feed-in to grid detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
 
     # check load met, ie there should be no supply from grid when grid is unavailable
     peak = 0
@@ -393,6 +395,8 @@ def validate_results(gen_p, gen_q, soc, diesel_usage, store_p, store_q, pv_data)
             total += s[index]
     if peak > 1e-5 or total > 1e-5:
         print(f"Load not met, feed-in from grid during grid unavailability detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
+    else:
+        print(f"Load met, no feed-in from grid during grid unavailability detected. Peak: {peak:.1f}kVA. Total: {total:.1f}kVAh.")
 
     # Calculate total battery losses
     loss = 0
